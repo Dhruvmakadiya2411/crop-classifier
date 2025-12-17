@@ -144,96 +144,148 @@
         </div>
     </main>
 
-    <script>
-        const dropZone = document.getElementById('drop-zone');
-        const fileInput = document.getElementById('file-input');
-        const uploadContent = document.getElementById('upload-content');
-        const previewContent = document.getElementById('preview-content');
-        const imagePreview = document.getElementById('image-preview');
-        const loadingContent = document.getElementById('loading-content');
-        const resultsArea = document.getElementById('results-area');
-        
-        let isProcessing = false;
+  <script>
+    const dropZone = document.getElementById('drop-zone');
+    const fileInput = document.getElementById('file-input');
+    const uploadContent = document.getElementById('upload-content');
+    const previewContent = document.getElementById('preview-content');
+    const imagePreview = document.getElementById('image-preview');
+    const loadingContent = document.getElementById('loading-content');
+    const resultsArea = document.getElementById('results-area');
 
-        dropZone.addEventListener('click', () => { if (!isProcessing) fileInput.click(); });
-        dropZone.addEventListener('dragover', (e) => { e.preventDefault(); dropZone.classList.add('border-emerald-500', 'bg-emerald-50'); });
-        dropZone.addEventListener('dragleave', () => { dropZone.classList.remove('border-emerald-500', 'bg-emerald-50'); });
-        dropZone.addEventListener('drop', (e) => {
-            e.preventDefault();
-            dropZone.classList.remove('border-emerald-500', 'bg-emerald-50');
-            if (e.dataTransfer.files.length) handleFile(e.dataTransfer.files[0]);
-        });
+    let isProcessing = false;
 
-        fileInput.addEventListener('change', (e) => { if (e.target.files.length) handleFile(e.target.files[0]); });
+    // ----------------------------
+    // Drag & Drop + Click Handling
+    // ----------------------------
+    dropZone.addEventListener('click', () => {
+        if (!isProcessing) fileInput.click();
+    });
 
-        function handleFile(file) {
-            if (!file.type.startsWith('image/')) return alert('Please upload an image.');
-            const reader = new FileReader();
-            reader.onload = (e) => {
-                imagePreview.src = e.target.result;
-                uploadContent.classList.add('hidden');
-                previewContent.classList.remove('hidden');
-            };
-            reader.readAsDataURL(file);
-            startPrediction(file);
+    dropZone.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        dropZone.classList.add('border-emerald-500', 'bg-emerald-50');
+    });
+
+    dropZone.addEventListener('dragleave', () => {
+        dropZone.classList.remove('border-emerald-500', 'bg-emerald-50');
+    });
+
+    dropZone.addEventListener('drop', (e) => {
+        e.preventDefault();
+        dropZone.classList.remove('border-emerald-500', 'bg-emerald-50');
+        if (e.dataTransfer.files.length) {
+            handleFile(e.dataTransfer.files[0]);
+        }
+    });
+
+    fileInput.addEventListener('change', (e) => {
+        if (e.target.files.length) {
+            handleFile(e.target.files[0]);
+        }
+    });
+
+    // ----------------------------
+    // Handle File Upload
+    // ----------------------------
+    function handleFile(file) {
+        if (!file.type.startsWith('image/')) {
+            alert('Please upload a valid image file.');
+            return;
         }
 
-        async function startPrediction(file) {
-            isProcessing = true;
-            loadingContent.classList.remove('hidden');
-            previewContent.classList.add('opacity-50');
-            
-            const selectedCrop = document.querySelector('input[name="crop"]:checked').value;
-            const formData = new FormData();
-            formData.append('crop', selectedCrop);
-            formData.append('file', file);
+        const reader = new FileReader();
+        reader.onload = (e) => {
+            imagePreview.src = e.target.result;
+            uploadContent.classList.add('hidden');
+            previewContent.classList.remove('hidden');
+        };
+        reader.readAsDataURL(file);
 
-            try {
-                // Configured for local MacBook Pro environment
-                const response = await fetch('/predict', {
+        startPrediction(file);
+    }
 
-                    method: 'POST',
-                    body: formData
-                });
+    // ----------------------------
+    // Prediction Request (RENDER SAFE)
+    // ----------------------------
+    async function startPrediction(file) {
+        isProcessing = true;
+        loadingContent.classList.remove('hidden');
+        previewContent.classList.add('opacity-50');
 
-                if (!response.ok) throw new Error('Prediction failed');
+        const selectedCrop = document.querySelector('input[name="crop"]:checked').value;
 
-                const data = await response.json();
-                updateUI(data);
+        const formData = new FormData();
+        formData.append('crop', selectedCrop);
+        formData.append('file', file);
 
-            } catch (error) {
-                console.error(error);
-                alert('Error: Ensure your backend at dhruvmakadiya@MacBook-Pro is running on port 8000.');
-            } finally {
-                isProcessing = false;
-                loadingContent.classList.add('hidden');
-                previewContent.classList.remove('opacity-50');
+        // Allow long inference time on Render (CPU + cold start)
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 90000); // 90 seconds
+
+        try {
+            const response = await fetch('/predict', {
+                method: 'POST',
+                body: formData,
+                signal: controller.signal
+            });
+
+            clearTimeout(timeoutId);
+
+            if (!response.ok) {
+                throw new Error('Prediction failed');
             }
-        }
 
-        function updateUI(data) {
-            resultsArea.classList.remove('opacity-0', 'translate-y-4');
-            document.getElementById('res-disease').textContent = data.disease;
-            document.getElementById('res-confidence').textContent = data.confidence + '%';
+            const data = await response.json();
+            updateUI(data);
 
-            const confText = document.getElementById('res-confidence');
-            const progress = document.getElementById('res-progress');
-            
-            progress.style.width = '0%';
+        } catch (error) {
+            console.error(error);
 
-            if(data.confidence > 80) {
-                confText.className = "text-4xl font-bold text-emerald-500";
-                progress.className = "bg-emerald-500 h-4 rounded-full transition-all duration-1000 ease-out";
-            } else if (data.confidence > 50) {
-                confText.className = "text-4xl font-bold text-yellow-500";
-                progress.className = "bg-yellow-500 h-4 rounded-full transition-all duration-1000 ease-out";
+            if (error.name === 'AbortError') {
+                alert('Analysis is taking longer than usual. Please try again.');
             } else {
-                confText.className = "text-4xl font-bold text-red-500";
-                progress.className = "bg-red-500 h-4 rounded-full transition-all duration-1000 ease-out";
+                alert('Server is busy or warming up. Please retry.');
             }
 
-            setTimeout(() => { progress.style.width = data.confidence + '%'; }, 100);
+        } finally {
+            isProcessing = false;
+            loadingContent.classList.add('hidden');
+            previewContent.classList.remove('opacity-50');
         }
-    </script>
+    }
+
+    // ----------------------------
+    // Update Results UI
+    // ----------------------------
+    function updateUI(data) {
+        resultsArea.classList.remove('opacity-0', 'translate-y-4');
+
+        document.getElementById('res-disease').textContent = data.disease;
+        document.getElementById('res-confidence').textContent = data.confidence + '%';
+
+        const confText = document.getElementById('res-confidence');
+        const progress = document.getElementById('res-progress');
+
+        progress.style.width = '0%';
+
+        if (data.confidence > 80) {
+            confText.className = "text-4xl font-bold text-emerald-500";
+            progress.className = "bg-emerald-500 h-4 rounded-full transition-all duration-1000 ease-out";
+        } else if (data.confidence > 50) {
+            confText.className = "text-4xl font-bold text-yellow-500";
+            progress.className = "bg-yellow-500 h-4 rounded-full transition-all duration-1000 ease-out";
+        } else {
+            confText.className = "text-4xl font-bold text-red-500";
+            progress.className = "bg-red-500 h-4 rounded-full transition-all duration-1000 ease-out";
+        }
+
+        setTimeout(() => {
+            progress.style.width = data.confidence + '%';
+        }, 100);
+    }
+</script>
+
+
 </body>
 </html>
