@@ -1,0 +1,9 @@
+fastapi
+uvicorn
+torch
+torchvision
+timm
+pillow
+python-multipart
+
+
